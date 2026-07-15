@@ -1,0 +1,11 @@
+{
+  "name": "peta-pendidikan-tinggi-indonesia",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dashboard geospasial perguruan tinggi Indonesia dari dataset PDDIKTI",
+  "scripts": {
+    "build": "node --max-old-space-size=4096 build/build.js",
+    "verify": "node --max-old-space-size=4096 build/verify.js",
+    "start": "npx --yes http-server site -p 8791 -c-1"
+  }
+}

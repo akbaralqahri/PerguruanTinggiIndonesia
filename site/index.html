@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peta Pendidikan Tinggi Indonesia — Dataset PDDIKTI</title>
+<meta name="description" content="Dashboard geospasial 5.433 perguruan tinggi Indonesia dari dataset PDDIKTI, dipetakan ke 38 provinsi dan 514 kabupaten/kota.">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <p class="eyebrow">Dataset PDDIKTI &middot; Kementerian Pendidikan Tinggi</p>
+    <h1>Peta Pendidikan Tinggi Indonesia</h1>
+    <p class="lede">
+      Seluruh <b id="lede-total">5.433</b> perguruan tinggi dalam dataset, dipetakan ke batas wilayah
+      resmi Kepmendagri &mdash; 38 provinsi dan 514 kabupaten/kota. Angka di bawah menghitung
+      perguruan tinggi berstatus <b>Aktif</b>; gunakan penyaring untuk mengubahnya.
+    </p>
+    <div class="tiles" id="tiles"></div>
+  </div>
+</header>
+
+<div class="filters">
+  <div class="wrap filter-row" id="filter-row">
+    <div class="fgroup">
+      <label for="f-status">Status</label>
+      <select id="f-status"></select>
+    </div>
+    <div class="fgroup">
+      <label for="f-jenis">Jenis</label>
+      <select id="f-jenis"></select>
+    </div>
+    <div class="fgroup">
+      <label for="f-akr">Akreditasi</label>
+      <select id="f-akr"></select>
+    </div>
+    <div class="fgroup">
+      <label for="f-prov">Provinsi</label>
+      <select id="f-prov"></select>
+    </div>
+    <div class="fgroup">
+      <label class="sr-only" for="f-q">Cari nama</label>
+      <input type="search" id="f-q" placeholder="Cari nama atau singkatan&hellip;">
+    </div>
+    <button class="btn" id="f-reset" type="button">Atur ulang</button>
+    <span class="chip-reset count-live"><b id="count-live">0</b> perguruan tinggi terpilih</span>
+  </div>
+</div>
+
+<main class="wrap">
+
+  <!-- ============ MAP ============ -->
+  <section id="peta">
+    <div class="sec-head">
+      <h2>Sebaran geospasial</h2>
+      <p>
+        Klik sebuah provinsi untuk menelusuri ke kabupaten/kota di dalamnya. Warna mengikuti
+        ukuran yang dipilih; wilayah tanpa data yang cukup ditampilkan abu-abu.
+      </p>
+    </div>
+
+    <div class="map-shell">
+      <div class="map-card">
+        <div class="map-toolbar">
+          <div class="seg" id="seg-level" role="group" aria-label="Tingkat wilayah">
+            <button type="button" data-level="prov" aria-pressed="true">Provinsi</button>
+            <button type="button" data-level="kab" aria-pressed="false">Kabupaten/Kota</button>
+          </div>
+          <div class="fgroup">
+            <label for="m-metric">Ukuran</label>
+            <select id="m-metric">
+              <option value="count">Jumlah perguruan tinggi</option>
+              <option value="per100k">PT per 100.000 penduduk</option>
+              <option value="unggulPct">% Terakreditasi Unggul/A</option>
+              <option value="prodi">Jumlah program studi</option>
+              <option value="biaya">Median biaya tertinggi / semester</option>
+              <option value="lulus">Median persentase kelulusan</option>
+            </select>
+          </div>
+          <button class="btn" id="m-reset" type="button">Tampilkan seluruh Indonesia</button>
+          <label class="fgroup" style="gap:5px;font-size:13px;color:var(--ink-2)">
+            <input type="checkbox" id="m-base"> Peta dasar
+          </label>
+        </div>
+        <div id="map"></div>
+        <div class="legend" id="legend" hidden>
+          <div class="lg-title" id="lg-title">Jumlah PT</div>
+          <div class="bar" id="lg-bar"></div>
+          <div class="ticks"><span id="lg-min">0</span><span id="lg-max">0</span></div>
+          <div class="na"><i></i> tidak ada data</div>
+        </div>
+      </div>
+
+      <aside class="map-side" id="side">
+        <div class="side-empty">Arahkan kursor ke peta untuk melihat rincian wilayah.</div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ CHARTS ============ -->
+  <section id="grafik">
+    <div class="sec-head">
+      <h2>Rincian</h2>
+      <p>Semua grafik mengikuti penyaring di atas.</p>
+    </div>
+    <div class="chart-grid">
+      <div class="card">
+        <h3>Provinsi dengan perguruan tinggi terbanyak</h3>
+        <p class="card-sub" id="c-prov-sub">15 teratas</p>
+        <div class="bars" id="c-prov"></div>
+      </div>
+
+      <div class="card">
+        <h3>Kepadatan relatif terhadap penduduk</h3>
+        <p class="card-sub">Perguruan tinggi per 100.000 penduduk &mdash; 15 provinsi teratas</p>
+        <div class="bars" id="c-per100k"></div>
+      </div>
+
+      <div class="card">
+        <h3>Jenis perguruan tinggi</h3>
+        <p class="card-sub" id="c-jenis-sub"></p>
+        <div class="stack" id="c-jenis-stack"></div>
+        <div class="legend-inline" id="c-jenis-legend"></div>
+      </div>
+
+      <div class="card">
+        <h3>Peringkat akreditasi</h3>
+        <p class="card-sub">Skema lama (A/B/C) dan baru (Unggul/Baik Sekali/Baik) disetarakan per tingkat</p>
+        <div class="stack" id="c-akr-stack"></div>
+        <div class="legend-inline" id="c-akr-legend"></div>
+      </div>
+
+      <div class="card">
+        <h3>Sebaran biaya per semester</h3>
+        <p class="card-sub" id="c-biaya-sub"></p>
+        <div class="hist" id="c-biaya"></div>
+        <div class="hist-x" id="c-biaya-x"></div>
+      </div>
+
+      <div class="card">
+        <h3>Sebaran persentase kelulusan</h3>
+        <p class="card-sub" id="c-lulus-sub"></p>
+        <div class="hist" id="c-lulus"></div>
+        <div class="hist-x" id="c-lulus-x"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TABLE ============ -->
+  <section id="tabel">
+    <div class="sec-head">
+      <h2>Daftar perguruan tinggi</h2>
+      <p>Klik judul kolom untuk mengurutkan. Nilai kosong berarti tidak tersedia di dataset sumber.</p>
+    </div>
+    <div class="tbl-scroll">
+      <table class="pt" id="tbl">
+        <thead>
+          <tr>
+            <th data-sort="nama">Nama</th>
+            <th data-sort="singkat">Singkatan</th>
+            <th data-sort="jenis">Jenis</th>
+            <th data-sort="status">Status</th>
+            <th data-sort="akr">Akreditasi</th>
+            <th data-sort="kab">Kabupaten/Kota</th>
+            <th data-sort="prov">Provinsi</th>
+            <th data-sort="prodi" class="num">Prodi</th>
+            <th data-sort="lulus" class="num">Kelulusan</th>
+            <th data-sort="biayaMax" class="num">Biaya tertinggi</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="pager" id="pager"></div>
+  </section>
+
+  <!-- ============ DATA QUALITY ============ -->
+  <section id="kualitas">
+    <div class="sec-head">
+      <h2>Catatan kualitas data</h2>
+      <p>
+        Dataset ini punya sejumlah cacat bawaan. Semuanya ditandai, bukan disembunyikan,
+        supaya angka di atas bisa dinilai secara adil.
+      </p>
+    </div>
+    <div class="dq-grid">
+      <div class="card">
+        <h3>Yang perlu diketahui</h3>
+        <p class="card-sub">Temuan saat data diolah</p>
+        <ul class="notes" id="dq-notes"></ul>
+      </div>
+      <div class="card">
+        <h3>Baris yang ditandai</h3>
+        <p class="card-sub">Dari total <span id="dq-total"></span> baris</p>
+        <div id="dq-flags"></div>
+      </div>
+      <div class="card">
+        <h3>Perbaikan batas wilayah</h3>
+        <p class="card-sub">Poligon diperiksa silang dengan kolom koordinat yang terpisah</p>
+        <ul class="notes" id="dq-geo"></ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>
+      <b>Sumber data.</b> Perguruan tinggi: <code>pddikti_pt_gabungan.csv</code> (dataset PDDIKTI).
+      Batas wilayah, penduduk dan luas: <a href="https://github.com/cahyadsn/wilayah" target="_blank" rel="noopener noreferrer">cahyadsn/wilayah</a>
+      (lisensi MIT, berdasarkan Kepmendagri No 300.2.2-2138 Tahun 2025). Peta dibuat dengan
+      <a href="https://leafletjs.com/" target="_blank" rel="noopener noreferrer">Leaflet</a> (BSD-2-Clause).
+      Peta dasar opsional &copy; kontributor <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> &amp; CARTO.
+    </p>
+    <p id="foot-build"></p>
+  </div>
+</footer>
+
+<script src="vendor/leaflet.js"></script>
+<script src="data/meta.js"></script>
+<script src="data/wilayah.js"></script>
+<script src="data/pt.js"></script>
+<script src="data/geo-prov.js"></script>
+<script src="data/geo-kab.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
