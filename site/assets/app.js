@@ -33,6 +33,9 @@
   const el = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const root = document.documentElement;
+  const mediaDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  const cssVar = name => getComputedStyle(root).getPropertyValue(name).trim();
 
   // ---------- palette (validated; see build notes) ----------
   // Categorical slots are bound to entities, never to rank, so filtering a
@@ -55,16 +58,24 @@
     'Aktif': 'var(--s1)', 'Alih Bentuk': 'var(--s3)', 'Tutup': 'var(--s6)',
     'Alih Kelola': 'var(--s5)', 'Pembinaan': 'var(--s7)', 'Merger': 'var(--s8)',
   };
-  // Sequential ramp for the choropleth: one hue, dark (low) -> light (high),
-  // so the low end recedes toward the dark map surface.
-  const RAMP = ['#0d366b', '#184f95', '#256abf', '#3987e5', '#5598e7', '#86b6ef', '#b7d3f6', '#cde2fb'];
-  const NO_DATA = '#3a3a38';
+  // Sequential ramps are tuned per theme. The dark ramp runs dark -> light; the
+  // light ramp stays legible on a pale map without letting the high end vanish.
+  const RAMP_LIGHT = ['#d9e9fb', '#b7d3f6', '#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281', '#0b315f'];
+  const RAMP_DARK = ['#0d366b', '#184f95', '#256abf', '#3987e5', '#5598e7', '#86b6ef', '#b7d3f6', '#cde2fb'];
+  const activeTheme = () => {
+    const explicit = root.getAttribute('data-theme');
+    if (explicit === 'light' || explicit === 'dark') return explicit;
+    return mediaDark && mediaDark.matches ? 'dark' : 'light';
+  };
+  const getRamp = () => activeTheme() === 'dark' ? RAMP_DARK : RAMP_LIGHT;
+  const noDataColor = () => cssVar('--map-nodata') || (activeTheme() === 'dark' ? '#3a3a38' : '#dcdad3');
 
   // ---------- state ----------
   const state = {
     status: 'Aktif', jenis: '', akr: '', prov: '', q: '',
     level: 'prov', metric: 'count', focusProv: null,
     sortKey: 'nama', sortDir: 1, page: 1,
+    cmpA: '', cmpB: '',
   };
   const PER_PAGE = 50;
 
@@ -120,6 +131,109 @@
     lulus: { label: 'Median kelulusan', fmt: pct, get: a => (a.lulusN >= 3 ? a.lulus : null), minN: 3 },
   };
 
+  function readStateFromUrl() {
+    const params = new URLSearchParams(location.search);
+    if (params.has('status')) state.status = params.get('status') || '';
+    if (params.has('jenis')) state.jenis = params.get('jenis') || '';
+    if (params.has('akr')) state.akr = params.get('akr') || '';
+    if (params.has('prov')) {
+      state.prov = params.get('prov') || '';
+      state.focusProv = state.prov || null;
+    }
+    if (params.has('q')) state.q = params.get('q') || '';
+    if (params.get('level') === 'kab' || state.prov) state.level = 'kab';
+    if (params.get('level') === 'prov') state.level = 'prov';
+    if (METRIC[params.get('metric')]) state.metric = params.get('metric');
+    if (params.get('sort')) state.sortKey = params.get('sort');
+    if (params.get('dir') === '-1') state.sortDir = -1;
+    const page = Number(params.get('page'));
+    if (Number.isInteger(page) && page > 0) state.page = page;
+    state.cmpA = params.get('cmpA') || '';
+    state.cmpB = params.get('cmpB') || '';
+  }
+
+  function syncUrl(push) {
+    if (!window.history || location.protocol === 'file:') return location.href;
+    const p = new URLSearchParams();
+    if (state.status !== 'Aktif') p.set('status', state.status);
+    if (state.jenis) p.set('jenis', state.jenis);
+    if (state.akr) p.set('akr', state.akr);
+    if (state.prov) p.set('prov', state.prov);
+    if (state.q) p.set('q', state.q);
+    if (state.level !== 'prov') p.set('level', state.level);
+    if (state.metric !== 'count') p.set('metric', state.metric);
+    if (state.sortKey !== 'nama') p.set('sort', state.sortKey);
+    if (state.sortDir !== 1) p.set('dir', String(state.sortDir));
+    if (state.page !== 1) p.set('page', String(state.page));
+    if (state.cmpA) p.set('cmpA', state.cmpA);
+    if (state.cmpB) p.set('cmpB', state.cmpB);
+    const next = `${location.pathname}${p.toString() ? '?' + p.toString() : ''}${location.hash || ''}`;
+    if (next !== `${location.pathname}${location.search}${location.hash || ''}`) {
+      history[push ? 'pushState' : 'replaceState'](null, '', next);
+    }
+    return location.href;
+  }
+
+  function initTheme() {
+    const btn = el('theme-btn');
+    const update = () => {
+      if (!btn) return;
+      const t = activeTheme();
+      btn.setAttribute('aria-label', t === 'dark' ? 'Gunakan tema terang' : 'Gunakan tema gelap');
+      btn.title = t === 'dark' ? 'Tema terang' : 'Tema gelap';
+    };
+    if (btn) {
+      btn.addEventListener('click', () => {
+        const next = activeTheme() === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        try { localStorage.setItem('tema', next); } catch (e) {}
+        update();
+        refreshBaseLayer();
+        if (agg) renderMap();
+      });
+    }
+    if (mediaDark) {
+      const onChange = () => {
+        update();
+        refreshBaseLayer();
+        if (agg) renderMap();
+      };
+      if (mediaDark.addEventListener) mediaDark.addEventListener('change', onChange);
+      else if (mediaDark.addListener) mediaDark.addListener(onChange);
+    }
+    update();
+  }
+
+  function copyShareUrl() {
+    const url = syncUrl(true);
+    const btn = el('f-share');
+    const flash = text => {
+      if (!btn) return;
+      const old = btn.textContent;
+      btn.textContent = text;
+      window.setTimeout(() => { btn.textContent = old; }, 1300);
+    };
+    const fallback = () => {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); flash('Tersalin'); }
+      catch (e) { flash('Link siap'); }
+      ta.remove();
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(() => flash('Tersalin'), fallback);
+    } else {
+      fallback();
+    }
+  }
+
+  readStateFromUrl();
+
   // ---------- map ----------
   const map = L.map('map', {
     center: [-2.3, 118], zoom: 5, minZoom: 4, maxZoom: 11,
@@ -129,13 +243,23 @@
   map.attributionControl.setPrefix('');
 
   let baseLayer = null;
+  function baseTileUrl() {
+    return activeTheme() === 'dark'
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+  }
+  function refreshBaseLayer() {
+    const toggle = el('m-base');
+    if (!toggle || !toggle.checked) return;
+    if (baseLayer) map.removeLayer(baseLayer);
+    baseLayer = L.tileLayer(baseTileUrl(), {
+      attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 11,
+    }).addTo(map);
+    baseLayer.bringToBack();
+  }
   el('m-base').addEventListener('change', e => {
-    if (e.target.checked) {
-      baseLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 11,
-      }).addTo(map);
-      baseLayer.bringToBack();
-    } else if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
+    if (e.target.checked) refreshBaseLayer();
+    else if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
   });
 
   let layerProv = null, layerKab = null, agg = null, scale = null;
@@ -145,20 +269,21 @@
   function makeScale(values) {
     const v = values.filter(x => x != null && isFinite(x)).sort((a, b) => a - b);
     if (!v.length) return null;
+    const ramp = getRamp();
     const lo = v[0], hi = v[v.length - 1];
-    if (lo === hi) return { lo, hi, at: () => RAMP[RAMP.length - 1] };
+    if (lo === hi) return { lo, hi, at: () => ramp[ramp.length - 1] };
     // Counts are extremely skewed (Jawa Barat has ~40x the smallest province),
     // so a linear ramp would flatten everything outside Java into one shade.
     // Quantile breaks keep every class populated.
     const breaks = [];
-    for (let i = 1; i < RAMP.length; i++) breaks.push(v[Math.floor((i / RAMP.length) * v.length)]);
+    for (let i = 1; i < ramp.length; i++) breaks.push(v[Math.floor((i / ramp.length) * v.length)]);
     return {
       lo, hi, breaks,
       at(x) {
-        if (x == null || !isFinite(x)) return NO_DATA;
+        if (x == null || !isFinite(x)) return noDataColor();
         let i = 0;
         while (i < breaks.length && x >= breaks[i]) i++;
-        return RAMP[i];
+        return ramp[i];
       },
     };
   }
@@ -168,9 +293,9 @@
     const m = METRIC[state.metric];
     const v = a ? m.get(a) : null;
     return {
-      fillColor: scale ? scale.at(v) : NO_DATA,
+      fillColor: scale ? scale.at(v) : noDataColor(),
       fillOpacity: v == null ? 0.25 : 0.85,
-      color: '#0d0d0d', weight: 0.6, opacity: 0.9,
+      color: cssVar('--map-stroke') || '#0d0d0d', weight: 0.6, opacity: 0.9,
     };
   }
 
@@ -189,8 +314,8 @@
   function bindLayer(feature, layer, level) {
     const kode = feature.properties.kode;
     layer.bindTooltip(() => tipHtml(kode, level), { className: 'map-tip', sticky: true });
-    layer.on('mouseover', () => { layer.setStyle({ weight: 2, color: '#fff' }); showSide(kode, level); });
-    layer.on('mouseout', () => layer.setStyle({ weight: 0.6, color: '#0d0d0d' }));
+    layer.on('mouseover', () => { layer.setStyle({ weight: 2, color: cssVar('--map-hover') || '#fff' }); showSide(kode, level); });
+    layer.on('mouseout', () => layer.setStyle({ weight: 0.6, color: cssVar('--map-stroke') || '#0d0d0d' }));
     layer.on('click', () => {
       if (level === 'prov') drillTo(kode);
       else { showSide(kode, level); map.fitBounds(layer.getBounds(), { padding: [30, 30] }); }
@@ -246,7 +371,7 @@
     lg.hidden = false;
     const m = METRIC[state.metric];
     el('lg-title').textContent = m.label;
-    el('lg-bar').innerHTML = RAMP.map(c => `<i style="background:${c}"></i>`).join('');
+    el('lg-bar').innerHTML = getRamp().map(c => `<i style="background:${c}"></i>`).join('');
     el('lg-min').textContent = m.fmt(scale.lo);
     el('lg-max').textContent = m.fmt(scale.hi);
   }
@@ -406,6 +531,117 @@
     ).join('');
   }
 
+  function refName(kode) {
+    return REF[kode] ? REF[kode].nama : kode;
+  }
+
+  function renderInsights(rows) {
+    const host = el('insights');
+    if (!host) return;
+    if (!rows.length) {
+      host.innerHTML = `<div class="insight"><div class="ins-k">Tidak ada hasil</div><div class="ins-v">Ubah penyaring untuk melihat ringkasan wilayah.</div></div>`;
+      return;
+    }
+    const prov = [...agg.prov.entries()].sort((a, b) => b[1].count - a[1].count);
+    const dense = [...agg.prov.entries()]
+      .filter(([, a]) => a.per100k != null && a.count >= 3)
+      .sort((a, b) => b[1].per100k - a[1].per100k);
+    const biaya = rows.map(p => p.biayaMax).filter(v => v != null);
+    const lulus = rows.map(p => p.lulus).filter(v => v != null);
+    const unggul = rows.filter(p => p.akrRank === 1).length;
+    const byJenis = {};
+    rows.forEach(p => { byJenis[p.jenis] = (byJenis[p.jenis] || 0) + 1; });
+    const jenisTop = Object.entries(byJenis).sort((a, b) => b[1] - a[1])[0];
+
+    const cards = [
+      {
+        k: 'Konsentrasi terbesar',
+        v: prov[0] ? `<b>${esc(refName(prov[0][0]))}</b> memuat <b>${fmt(prov[0][1].count)}</b> PT terpilih.` : 'Belum ada wilayah terwakili.',
+        note: `${fmt(agg.prov.size)} provinsi terwakili oleh penyaring ini`,
+      },
+      {
+        k: 'Kepadatan tertinggi',
+        v: dense[0] ? `<b>${esc(refName(dense[0][0]))}</b> mencapai <b>${fmt1(dense[0][1].per100k)}</b> PT per 100.000 penduduk.` : 'Data penduduk belum cukup untuk menghitung kepadatan.',
+        note: 'Hanya provinsi dengan minimal 3 PT dihitung',
+      },
+      {
+        k: 'Mutu akreditasi',
+        v: `<b>${fmt(unggul)}</b> PT masuk kelompok <b>Unggul/A</b>.`,
+        note: rows.length ? `${pct((unggul / rows.length) * 100)} dari ${fmt(rows.length)} PT terpilih` : '',
+      },
+      {
+        k: 'Kelengkapan data',
+        v: `<b>${fmt(biaya.length)}</b> punya data biaya dan <b>${fmt(lulus.length)}</b> punya data kelulusan.`,
+        note: jenisTop ? `Jenis terbanyak: ${jenisTop[0]} (${fmt(jenisTop[1])} PT)` : '',
+      },
+    ];
+    host.innerHTML = cards.map(c =>
+      `<div class="insight"><div class="ins-k">${esc(c.k)}</div><div class="ins-v">${c.v}</div>${c.note ? `<div class="ins-note">${esc(c.note)}</div>` : ''}</div>`
+    ).join('');
+  }
+
+  function compareOptions() {
+    const src = state.level === 'prov' ? agg.prov : agg.kab;
+    return [...src.entries()]
+      .filter(([k]) => state.level === 'prov' || !state.focusProv || k.slice(0, 2) === state.focusProv)
+      .map(([k, a]) => ({ v: k, l: refName(k), count: a.count }))
+      .sort((a, b) => a.l.localeCompare(b.l, 'id'));
+  }
+
+  function ensureCompareSelection(options) {
+    const has = v => options.some(o => o.v === v);
+    const byCount = [...options].sort((a, b) => b.count - a.count);
+    if (!has(state.cmpA)) state.cmpA = byCount[0] ? byCount[0].v : '';
+    if (!has(state.cmpB) || state.cmpB === state.cmpA) {
+      state.cmpB = byCount.find(o => o.v !== state.cmpA)?.v || '';
+    }
+  }
+
+  function compareCard(kode, otherKode) {
+    const level = kode.length === 2 ? 'prov' : 'kab';
+    const a = (level === 'prov' ? agg.prov : agg.kab).get(kode);
+    const b = otherKode ? (level === 'prov' ? agg.prov : agg.kab).get(otherKode) : null;
+    const ref = REF[kode];
+    if (!a || !ref) return `<div class="cmp-col"><p class="side-empty">Pilih wilayah untuk dibandingkan.</p></div>`;
+    const metrics = [
+      { k: 'Perguruan tinggi', v: x => x.count, f: fmt },
+      { k: 'Program studi', v: x => x.prodi, f: fmt },
+      { k: 'PT per 100.000 penduduk', v: x => x.per100k, f: fmt1 },
+      { k: 'Unggul/A', v: x => x.unggulPct, f: pct },
+      { k: 'Median biaya', v: x => x.biayaN >= 3 ? x.biaya : null, f: rupiah },
+      { k: 'Median kelulusan', v: x => x.lulusN >= 3 ? x.lulus : null, f: pct },
+    ];
+    const parent = ref.induk && REF[ref.induk] ? REF[ref.induk].nama : '';
+    let h = `<div class="cmp-col"><div class="cmp-name">${esc(ref.nama)}</div><div class="cmp-sub">${esc(parent || (level === 'prov' ? 'Provinsi' : 'Kabupaten/Kota'))}</div>`;
+    h += metrics.map(m => {
+      const v = m.v(a);
+      const ov = b ? m.v(b) : null;
+      const max = Math.max(v || 0, ov || 0, 1);
+      const win = v != null && ov != null && v > ov ? '<span class="cmp-win">lebih tinggi</span>' : '';
+      return `<div class="cmp-metric"><div class="cm-k">${esc(m.k)}</div><div class="cm-v">${v == null ? '—' : m.f(v)}${win}</div><div class="cm-bar"><i style="width:${v == null ? 0 : Math.max((v / max) * 100, 2)}%"></i></div></div>`;
+    }).join('');
+    return h + '</div>';
+  }
+
+  function renderCompare() {
+    const host = el('cmp-grid');
+    const aSel = el('cmp-a');
+    const bSel = el('cmp-b');
+    if (!host || !aSel || !bSel) return;
+    const options = compareOptions();
+    ensureCompareSelection(options);
+    const html = options.map(o => `<option value="${esc(o.v)}">${esc(o.l)} (${fmt(o.count)})</option>`).join('');
+    aSel.innerHTML = html;
+    bSel.innerHTML = html;
+    aSel.value = state.cmpA;
+    bSel.value = state.cmpB;
+    if (!options.length) {
+      host.innerHTML = `<p class="side-empty">Tidak ada wilayah yang cocok dengan penyaring saat ini.</p>`;
+      return;
+    }
+    host.innerHTML = `${compareCard(state.cmpA, state.cmpB)}<div class="cmp-div"></div>${compareCard(state.cmpB, state.cmpA)}`;
+  }
+
   // ---------- table ----------
   // Fees above Rp200 juta/semester almost certainly fold one-off uang pangkal
   // into a per-semester column. They stay visible — flagged, not hidden — so
@@ -447,18 +683,39 @@
       const prov = REF[p.prov] ? REF[p.prov].nama : `<span class="dash">${esc(p.provRaw)}</span>`;
       const akrC = p.akrGroup ? AKR_COLOR[p.akrGroup] : null;
       return `<tr>
-        <td class="nm">${esc(p.nama)}</td>
-        <td>${esc(p.singkat) || '<span class="dash">—</span>'}</td>
-        <td><span class="pill" style="background:${JENIS_COLOR[p.jenis] || 'var(--surface-3)'};color:#fff">${esc(p.jenis)}</span></td>
-        <td>${esc(p.status)}</td>
-        <td>${p.akr ? `<span class="pill" style="background:${akrC};color:#0b0b0b">${esc(p.akr)}</span>` : '<span class="dash">—</span>'}</td>
-        <td>${kab}</td>
-        <td>${prov}</td>
+        <td><div class="t-nama">${esc(p.nama)}</div><div class="t-singkat">${esc(p.singkat) || '<span class="dash">—</span>'}</div><div class="t-status">${esc(p.status)}</div></td>
+        <td><span class="tag"><i style="background:${JENIS_COLOR[p.jenis] || 'var(--surface-3)'}"></i>${esc(p.jenis)}</span></td>
+        <td>${p.akr ? `<span class="tag wrap"><i style="background:${akrC || 'var(--surface-3)'}"></i>${esc(p.akr)}</span>` : '<span class="dash">—</span>'}</td>
+        <td><div class="t-kab">${kab}</div><div class="t-prov">${prov}</div></td>
         <td class="num">${fmt(p.prodi)}</td>
         <td class="num">${p.lulus == null ? '<span class="dash">—</span>' : pct(p.lulus)}</td>
         <td class="num">${biayaCell(p)}</td>
       </tr>`;
-    }).join('') || `<tr><td colspan="10" style="padding:26px;text-align:center;color:var(--ink-3)">Tidak ada yang cocok dengan penyaring.</td></tr>`;
+    }).join('') || `<tr><td colspan="7" class="tbl-empty">Tidak ada yang cocok dengan penyaring.</td></tr>`;
+
+    const cards = el('cards');
+    if (cards) {
+      cards.innerHTML = slice.map(p => {
+        const kab = REF[p.kab] ? REF[p.kab].nama : p.kabRaw;
+        const prov = REF[p.prov] ? REF[p.prov].nama : p.provRaw;
+        const akrC = p.akrGroup ? AKR_COLOR[p.akrGroup] : 'var(--surface-3)';
+        return `<article class="pt-card">
+          <div class="pc-nama">${esc(p.nama)}</div>
+          <div class="pc-sub">${esc(p.singkat || p.status)}${p.singkat ? ' · ' + esc(p.status) : ''}</div>
+          <div class="pc-meta">
+            <span class="pc-kv">Lokasi <b>${esc(kab || '—')}</b></span>
+            <span class="pc-kv">Provinsi <b>${esc(prov || '—')}</b></span>
+            <span class="pc-kv">Prodi <b>${fmt(p.prodi)}</b></span>
+            <span class="pc-kv">Kelulusan <b>${p.lulus == null ? '—' : pct(p.lulus)}</b></span>
+            <span class="pc-kv">Biaya <b>${biayaCell(p)}</b></span>
+          </div>
+          <div class="pc-tags">
+            <span class="tag"><i style="background:${JENIS_COLOR[p.jenis] || 'var(--surface-3)'}"></i>${esc(p.jenis)}</span>
+            ${p.akr ? `<span class="tag wrap"><i style="background:${akrC}"></i>${esc(p.akr)}</span>` : ''}
+          </div>
+        </article>`;
+      }).join('') || `<div class="tbl-empty">Tidak ada yang cocok dengan penyaring.</div>`;
+    }
 
     document.querySelectorAll('#tbl thead th').forEach(th => {
       const k = th.dataset.sort;
@@ -483,15 +740,24 @@
     akreditasi_kosong: 'Akreditasi kosong',
   };
   function renderQuality() {
-    el('dq-notes').innerHTML = META.catatan.map(c => `<li>${esc(c)}</li>`).join('');
-    el('dq-total').textContent = fmt(META.sumber.pt.baris);
-    el('dq-flags').innerHTML = Object.entries(META.flags)
-      .sort((a, b) => b[1] - a[1])
-      .map(([k, v]) => `<div class="flag-row"><span class="fname">${esc(FLAG_LABEL[k] || k)}</span><span class="fcount">${fmt(v)}</span></div>`)
-      .join('');
-    el('dq-geo').innerHTML = (META.geo.perbaikan || []).map(c => `<li>${esc(c)}</li>`).join('');
-    el('foot-build').textContent =
-      `Dibangun ${META.dibuat} · ${fmt(META.sumber.pt.baris)} PT · ${META.geo.provFitur} poligon provinsi · ${META.geo.kabFitur} poligon kabupaten/kota · ${fmt(META.join.tidakCocokBaris)} baris tanpa isian kabupaten.`;
+    const notes = el('dq-notes');
+    const total = el('dq-total');
+    const flags = el('dq-flags');
+    const geo = el('dq-geo');
+    if (notes) notes.innerHTML = META.catatan.map(c => `<li>${esc(c)}</li>`).join('');
+    if (total) total.textContent = fmt(META.sumber.pt.baris);
+    if (flags) {
+      flags.innerHTML = Object.entries(META.flags)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `<div class="flag-row"><span class="fname">${esc(FLAG_LABEL[k] || k)}</span><span class="fcount">${fmt(v)}</span></div>`)
+        .join('');
+    }
+    if (geo) geo.innerHTML = (META.geo.perbaikan || []).map(c => `<li>${esc(c)}</li>`).join('');
+    const foot = el('foot-build');
+    if (foot) {
+      foot.textContent =
+        `Dibangun ${META.dibuat} · ${fmt(META.sumber.pt.baris)} PT · ${META.geo.provFitur} poligon provinsi · ${META.geo.kabFitur} poligon kabupaten/kota · ${fmt(META.join.tidakCocokBaris)} baris tanpa isian kabupaten.`;
+    }
   }
 
   // ---------- filters UI ----------
@@ -514,6 +780,10 @@
       .map(k => ({ v: k, l: REF[k].nama })).sort((a, b) => a.l.localeCompare(b.l, 'id'));
     opts(el('f-prov'), provs, 'Seluruh Indonesia');
     el('f-status').value = state.status;
+    el('f-jenis').value = state.jenis;
+    el('f-akr').value = state.akr;
+    el('f-prov').value = state.prov;
+    el('f-q').value = state.q;
 
     el('f-status').addEventListener('change', e => { state.status = e.target.value; state.page = 1; render(); });
     el('f-jenis').addEventListener('change', e => { state.jenis = e.target.value; state.page = 1; render(); });
@@ -530,11 +800,13 @@
       t = setTimeout(() => { state.q = e.target.value; state.page = 1; render(); }, 180);
     });
     el('f-reset').addEventListener('click', () => {
-      Object.assign(state, { status: 'Aktif', jenis: '', akr: '', prov: '', q: '', focusProv: null, level: 'prov', page: 1 });
+      Object.assign(state, { status: 'Aktif', jenis: '', akr: '', prov: '', q: '', focusProv: null, level: 'prov', page: 1, cmpA: '', cmpB: '' });
       el('f-status').value = 'Aktif'; el('f-jenis').value = ''; el('f-akr').value = '';
       el('f-prov').value = ''; el('f-q').value = '';
       syncSeg(); render(); homeView();
     });
+    const share = el('f-share');
+    if (share) share.addEventListener('click', copyShareUrl);
   }
 
   function syncSeg() {
@@ -553,10 +825,11 @@
       b.addEventListener('click', () => {
         state.level = b.dataset.level;
         if (state.level === 'prov') state.focusProv = null;
-        syncSeg(); renderMap();
+        syncSeg(); renderMap(); renderCompare(); syncUrl(false);
       });
     });
-    el('m-metric').addEventListener('change', e => { state.metric = e.target.value; renderMap(); });
+    el('m-metric').value = state.metric;
+    el('m-metric').addEventListener('change', e => { state.metric = e.target.value; renderMap(); syncUrl(false); });
     el('m-reset').addEventListener('click', () => {
       state.focusProv = null; state.level = 'prov'; state.prov = ''; el('f-prov').value = '';
       syncSeg(); render(); homeView();
@@ -566,6 +839,7 @@
       if (!b || b.disabled) return;
       state.page = +b.dataset.page;
       renderTable(filtered());
+      syncUrl(false);
       document.getElementById('tabel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
     document.querySelectorAll('#tbl thead th').forEach(th => {
@@ -575,7 +849,22 @@
         else { state.sortKey = k; state.sortDir = 1; }
         state.page = 1;
         renderTable(filtered());
+        syncUrl(false);
       });
+      th.addEventListener('keydown', e => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        th.click();
+      });
+    });
+    el('cmp-a').addEventListener('change', e => { state.cmpA = e.target.value; renderCompare(); syncUrl(false); });
+    el('cmp-b').addEventListener('change', e => { state.cmpB = e.target.value; renderCompare(); syncUrl(false); });
+    el('cmp-swap').addEventListener('click', () => {
+      const a = state.cmpA;
+      state.cmpA = state.cmpB;
+      state.cmpB = a;
+      renderCompare();
+      syncUrl(false);
     });
   }
 
@@ -585,14 +874,19 @@
     agg = aggregate(rows);
     el('count-live').textContent = fmt(rows.length);
     renderTiles(rows);
+    renderInsights(rows);
     renderMap();
     renderCharts(rows);
+    renderCompare();
     renderTable(rows);
+    syncUrl(false);
   }
 
   el('lede-total').textContent = fmt(PT.length);
+  initTheme();
   initFilters();
   initMapControls();
+  syncSeg();
   renderQuality();
   render();
 

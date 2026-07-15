@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://peta-pendidikan-tinggi-indonesia.vercel.app/sitemap.xml
