@@ -60,15 +60,27 @@
 </nav>
 
 <header class="masthead">
-  <div class="wrap">
-    <p class="eyebrow">Dataset PDDIKTI</p>
-    <h1>Peta Pendidikan Tinggi Indonesia</h1>
-    <p class="lede">
-      Seluruh <b id="lede-total">5.433</b> perguruan tinggi dalam dataset, dipetakan ke batas wilayah
-      resmi Kepmendagri &mdash; 38 provinsi dan 514 kabupaten/kota. Angka di bawah menghitung
-      perguruan tinggi berstatus <b>Aktif</b>; gunakan penyaring untuk mengubahnya.
-    </p>
-    <div class="tiles" id="tiles"></div>
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <p class="eyebrow">Dataset PDDIKTI</p>
+      <h1>Peta Pendidikan Tinggi Indonesia</h1>
+      <p class="lede">
+        Jelajahi <b id="lede-total">5.433</b> perguruan tinggi dalam satu dashboard geospasial:
+        sebaran wilayah, akreditasi, program studi, biaya, dan kepadatan relatif terhadap penduduk.
+      </p>
+      <div class="hero-actions">
+        <a class="btn primary" href="#peta">Mulai dari peta</a>
+        <a class="btn ghost" href="#tabel">Cari kampus</a>
+        <a class="text-link" href="tentang-data.html">Baca metodologi</a>
+      </div>
+    </div>
+    <div class="hero-panel" aria-label="Ringkasan nasional">
+      <div class="hero-panel-head">
+        <span>Ringkasan aktif</span>
+        <b id="hero-scope">Status Aktif</b>
+      </div>
+      <div class="tiles" id="tiles"></div>
+    </div>
   </div>
 </header>
 
@@ -97,18 +109,11 @@
     <button class="btn" id="f-reset" type="button">Atur ulang</button>
     <button class="btn" id="f-share" type="button" title="Salin tautan ke tampilan ini">Salin tautan</button>
     <span class="count-live"><b id="count-live">0</b> perguruan tinggi terpilih</span>
+    <div class="active-filters" id="active-filters" aria-label="Penyaring aktif"></div>
   </div>
 </div>
 
 <main class="wrap">
-
-  <section id="sorotan">
-    <div class="sec-head">
-      <h2>Sorotan</h2>
-      <p>Dihitung langsung dari perguruan tinggi yang sedang terpilih.</p>
-    </div>
-    <div class="insight-grid" id="insights"></div>
-  </section>
 
   <section id="peta">
     <div class="sec-head">
@@ -141,6 +146,7 @@
           <label class="fgroup" style="gap:5px;font-size:13px;color:var(--ink-2)" id="base-wrap">
             <input type="checkbox" id="m-base"> Peta dasar
           </label>
+          <span class="map-mode" id="map-mode">Provinsi · Jumlah PT</span>
         </div>
         <div id="map"></div>
         <div class="legend" id="legend" hidden>
@@ -155,6 +161,14 @@
         <div class="side-empty">Arahkan kursor ke peta untuk melihat rincian wilayah.</div>
       </aside>
     </div>
+  </section>
+
+  <section id="sorotan">
+    <div class="sec-head">
+      <h2>Sorotan</h2>
+      <p>Dihitung langsung dari perguruan tinggi yang sedang terpilih.</p>
+    </div>
+    <div class="insight-grid" id="insights"></div>
   </section>
 
   <section id="banding">

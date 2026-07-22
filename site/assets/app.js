@@ -232,6 +232,55 @@
     }
   }
 
+  function filterItems() {
+    const out = [];
+    if (state.status) out.push({ key: 'status', label: 'Status', value: state.status });
+    if (state.jenis) out.push({ key: 'jenis', label: 'Jenis', value: state.jenis });
+    if (state.akr) out.push({ key: 'akr', label: 'Akreditasi', value: state.akr });
+    if (state.prov) out.push({ key: 'prov', label: 'Provinsi', value: refName(state.prov) });
+    if (state.q) out.push({ key: 'q', label: 'Cari', value: state.q });
+    return out;
+  }
+
+  function syncFilterControls() {
+    if (el('f-status')) el('f-status').value = state.status;
+    if (el('f-jenis')) el('f-jenis').value = state.jenis;
+    if (el('f-akr')) el('f-akr').value = state.akr;
+    if (el('f-prov')) el('f-prov').value = state.prov;
+    if (el('f-q')) el('f-q').value = state.q;
+  }
+
+  function clearFilter(key) {
+    if (key === 'status') state.status = '';
+    if (key === 'jenis') state.jenis = '';
+    if (key === 'akr') state.akr = '';
+    if (key === 'q') state.q = '';
+    if (key === 'prov') {
+      state.prov = '';
+      state.focusProv = null;
+      state.level = 'prov';
+    }
+    state.page = 1;
+    syncFilterControls();
+    syncSeg();
+    render();
+    if (key === 'prov') homeView();
+  }
+
+  function renderActiveFilters(rows) {
+    const host = el('active-filters');
+    if (!host) return;
+    const items = filterItems();
+    host.innerHTML = items.length
+      ? items.map(i => `<span class="filter-chip"><span>${esc(i.label)}: <b>${esc(i.value)}</b></span><button type="button" data-clear="${esc(i.key)}" aria-label="Hapus ${esc(i.label)}">×</button></span>`).join('')
+      : '<span class="filter-note">Menampilkan semua status dan wilayah.</span>';
+    const scope = el('hero-scope');
+    if (scope) {
+      const main = items.filter(i => i.key !== 'q').slice(0, 2).map(i => i.value).join(' · ');
+      scope.textContent = main || `${fmt(rows.length)} baris terpilih`;
+    }
+  }
+
   readStateFromUrl();
 
   // ---------- map ----------
@@ -339,12 +388,14 @@
   }
 
   function drillTo(provKode) {
+    state.prov = provKode;
     state.focusProv = provKode;
     state.level = 'kab';
+    state.page = 1;
+    if (el('f-prov')) el('f-prov').value = provKode;
     syncSeg();
-    renderMap();
-    const b = layerKab && layerKab.getBounds();
-    if (b && b.isValid()) map.fitBounds(b, { padding: [24, 24] });
+    render();
+    fitFocus();
     showSide(provKode, 'prov');
   }
 
@@ -362,6 +413,8 @@
     if (layerProv) { map.removeLayer(layerProv); layerProv = null; }
     if (layerKab) { map.removeLayer(layerKab); layerKab = null; }
     if (level === 'prov') drawProv(); else drawKab(state.focusProv);
+    const mode = el('map-mode');
+    if (mode) mode.textContent = `${level === 'prov' ? 'Provinsi' : 'Kabupaten/Kota'} · ${m.label}`;
     renderLegend();
   }
 
@@ -385,6 +438,13 @@
 
     let h = `<h3>${esc(ref.nama)}</h3>`;
     h += `<div class="side-sub">${parent ? esc(parent.nama) + ' · ' : ''}${level === 'prov' ? 'Provinsi' : 'Kabupaten/Kota'}${ref.ibukota ? ' · ibu kota ' + esc(ref.ibukota) : ''}</div>`;
+
+    h += `<div class="side-score">
+      <div class="mini"><span>Perguruan tinggi</span><b>${fmt(rows.length)}</b></div>
+      <div class="mini"><span>Program studi</span><b>${fmt(a ? a.prodi : 0)}</b></div>
+      <div class="mini"><span>Kepadatan</span><b>${a && a.per100k != null ? fmt1(a.per100k) : '—'}</b></div>
+      <div class="mini"><span>Unggul/A</span><b>${a && a.unggulPct != null ? pct(a.unggulPct) : '—'}</b></div>
+    </div>`;
 
     const kv = (k, v) => `<div class="kv"><span>${k}</span><span>${v}</span></div>`;
     h += kv('Perguruan tinggi', fmt(rows.length));
@@ -558,25 +618,29 @@
         k: 'Konsentrasi terbesar',
         v: prov[0] ? `<b>${esc(refName(prov[0][0]))}</b> memuat <b>${fmt(prov[0][1].count)}</b> PT terpilih.` : 'Belum ada wilayah terwakili.',
         note: `${fmt(agg.prov.size)} provinsi terwakili oleh penyaring ini`,
+        meter: prov[0] && rows.length ? (prov[0][1].count / rows.length) * 100 : 0,
       },
       {
         k: 'Kepadatan tertinggi',
         v: dense[0] ? `<b>${esc(refName(dense[0][0]))}</b> mencapai <b>${fmt1(dense[0][1].per100k)}</b> PT per 100.000 penduduk.` : 'Data penduduk belum cukup untuk menghitung kepadatan.',
         note: 'Hanya provinsi dengan minimal 3 PT dihitung',
+        meter: dense[0] && dense[0][1].per100k ? Math.min((dense[0][1].per100k / Math.max(...dense.map(d => d[1].per100k), 1)) * 100, 100) : 0,
       },
       {
         k: 'Mutu akreditasi',
         v: `<b>${fmt(unggul)}</b> PT masuk kelompok <b>Unggul/A</b>.`,
         note: rows.length ? `${pct((unggul / rows.length) * 100)} dari ${fmt(rows.length)} PT terpilih` : '',
+        meter: rows.length ? (unggul / rows.length) * 100 : 0,
       },
       {
         k: 'Kelengkapan data',
         v: `<b>${fmt(biaya.length)}</b> punya data biaya dan <b>${fmt(lulus.length)}</b> punya data kelulusan.`,
         note: jenisTop ? `Jenis terbanyak: ${jenisTop[0]} (${fmt(jenisTop[1])} PT)` : '',
+        meter: rows.length ? (Math.max(biaya.length, lulus.length) / rows.length) * 100 : 0,
       },
     ];
     host.innerHTML = cards.map(c =>
-      `<div class="insight"><div class="ins-k">${esc(c.k)}</div><div class="ins-v">${c.v}</div>${c.note ? `<div class="ins-note">${esc(c.note)}</div>` : ''}</div>`
+      `<div class="insight"><div class="ins-k">${esc(c.k)}</div><div class="ins-v">${c.v}</div>${c.note ? `<div class="ins-note">${esc(c.note)}</div>` : ''}<span class="ins-meter"><i style="width:${Math.max(Math.min(c.meter || 0, 100), 2)}%"></i></span></div>`
     ).join('');
   }
 
@@ -604,12 +668,12 @@
     const ref = REF[kode];
     if (!a || !ref) return `<div class="cmp-col"><p class="side-empty">Pilih wilayah untuk dibandingkan.</p></div>`;
     const metrics = [
-      { k: 'Perguruan tinggi', v: x => x.count, f: fmt },
-      { k: 'Program studi', v: x => x.prodi, f: fmt },
-      { k: 'PT per 100.000 penduduk', v: x => x.per100k, f: fmt1 },
-      { k: 'Unggul/A', v: x => x.unggulPct, f: pct },
-      { k: 'Median biaya', v: x => x.biayaN >= 3 ? x.biaya : null, f: rupiah },
-      { k: 'Median kelulusan', v: x => x.lulusN >= 3 ? x.lulus : null, f: pct },
+      { k: 'Perguruan tinggi', v: x => x.count, f: fmt, win: true },
+      { k: 'Program studi', v: x => x.prodi, f: fmt, win: true },
+      { k: 'PT per 100.000 penduduk', v: x => x.per100k, f: fmt1, win: true },
+      { k: 'Unggul/A', v: x => x.unggulPct, f: pct, win: true },
+      { k: 'Median biaya', v: x => x.biayaN >= 3 ? x.biaya : null, f: rupiah, win: false },
+      { k: 'Median kelulusan', v: x => x.lulusN >= 3 ? x.lulus : null, f: pct, win: true },
     ];
     const parent = ref.induk && REF[ref.induk] ? REF[ref.induk].nama : '';
     let h = `<div class="cmp-col"><div class="cmp-name">${esc(ref.nama)}</div><div class="cmp-sub">${esc(parent || (level === 'prov' ? 'Provinsi' : 'Kabupaten/Kota'))}</div>`;
@@ -617,8 +681,17 @@
       const v = m.v(a);
       const ov = b ? m.v(b) : null;
       const max = Math.max(v || 0, ov || 0, 1);
-      const win = v != null && ov != null && v > ov ? '<span class="cmp-win">lebih tinggi</span>' : '';
-      return `<div class="cmp-metric"><div class="cm-k">${esc(m.k)}</div><div class="cm-v">${v == null ? '—' : m.f(v)}${win}</div><div class="cm-bar"><i style="width:${v == null ? 0 : Math.max((v / max) * 100, 2)}%"></i></div></div>`;
+      const win = m.win && v != null && ov != null && v > ov ? '<span class="cmp-win">lebih tinggi</span>' : '';
+      let delta = '';
+      if (v != null && ov != null) {
+        const diff = v - ov;
+        delta = diff === 0 ? 'Setara dengan pembanding' : `${diff > 0 ? '+' : '-'}${m.f(Math.abs(diff))} dari pembanding`;
+      } else if (v == null && ov != null) {
+        delta = 'Data tidak cukup untuk wilayah ini';
+      } else if (v != null && ov == null) {
+        delta = 'Pembanding tidak punya data cukup';
+      }
+      return `<div class="cmp-metric"><div class="cm-k">${esc(m.k)}</div><div class="cm-v">${v == null ? '—' : m.f(v)}${win}</div>${delta ? `<div class="cmp-delta">${esc(delta)}</div>` : ''}<div class="cm-bar"><i style="width:${v == null ? 0 : Math.max((v / max) * 100, 2)}%"></i></div></div>`;
     }).join('');
     return h + '</div>';
   }
@@ -807,6 +880,14 @@
     });
     const share = el('f-share');
     if (share) share.addEventListener('click', copyShareUrl);
+    const active = el('active-filters');
+    if (active) {
+      active.addEventListener('click', e => {
+        const b = e.target.closest('button[data-clear]');
+        if (!b) return;
+        clearFilter(b.dataset.clear);
+      });
+    }
   }
 
   function syncSeg() {
@@ -873,6 +954,7 @@
     const rows = filtered();
     agg = aggregate(rows);
     el('count-live').textContent = fmt(rows.length);
+    renderActiveFilters(rows);
     renderTiles(rows);
     renderInsights(rows);
     renderMap();
