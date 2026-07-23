@@ -1,101 +1,119 @@
+<div align="center">
+
 # Peta Pendidikan Tinggi Indonesia
 
-Dashboard geospasial untuk dataset PDDIKTI: 5.433 perguruan tinggi, dipetakan ke
-batas wilayah resmi Kepmendagri (38 provinsi, 514 kabupaten/kota).
+**A geospatial intelligence system for exploring Indonesian higher-education data with explicit, independently verified data-quality rules.**
 
-## Menjalankan
+[Live dashboard](https://perguruan-tinggi-indonesia-nu.vercel.app/) · [Data methodology](https://perguruan-tinggi-indonesia-nu.vercel.app/tentang-data.html)
 
-Buka `site/index.html` langsung di browser — cukup klik dua kali. Data dimuat
-sebagai variabel global JavaScript, bukan lewat `fetch()`, supaya bisa jalan dari
-`file://` tanpa server.
+![JavaScript](https://img.shields.io/badge/JavaScript-120B0A?style=flat-square&logo=javascript&logoColor=F6C453)
+![Leaflet](https://img.shields.io/badge/Leaflet-120B0A?style=flat-square&logo=leaflet&logoColor=5EEAD4)
+![Data quality](https://img.shields.io/badge/34_validation_checks-120B0A?style=flat-square&logo=databricks&logoColor=FF7A59)
 
-Kalau lebih suka lewat server lokal:
+</div>
 
+![Dashboard preview](docs/preview.png)
+
+## The decision problem
+
+Public higher-education data is useful only when people can compare institutions across geography, accreditation, study programs, cost, and outcomes without hiding gaps in the source data. This project turns a raw PDDIKTI dataset into an interactive, auditable dashboard while preserving uncertainty and known defects.
+
+## Evidence at a glance
+
+| Signal | Verified scope |
+|---|---:|
+| Source records | 5,433 institutions |
+| Administrative reference | 38 provinces · 514 regencies/cities |
+| Independent validation | 34 checks |
+| Runtime model | Offline-first static application |
+
+The dashboard supports national-to-local exploration, campus search, regional comparison, distribution charts, and data-quality notes for every important transformation.
+
+## System design
+
+```mermaid
+flowchart LR
+    A["PDDIKTI CSV"] --> B["Clean and normalize"]
+    C["Kepmendagri regions"] --> D["Parse official boundaries"]
+    B --> E["Join institution to region"]
+    D --> E
+    E --> F["Geometry and anomaly checks"]
+    F --> G["Static JavaScript data assets"]
+    G --> H["Leaflet decision interface"]
+    A -. independent recomputation .-> I["34-check verifier"]
+    H -. compared with .-> I
 ```
-npm start        # http://localhost:8791
+
+The verifier recomputes results directly from the raw CSV without importing the production transformation modules. That separation prevents a defect in the main pipeline from validating itself.
+
+## What the system delivers
+
+- Province and regency/city exploration with optional basemaps.
+- Filters for institution status, type, accreditation, location, cost, and outcomes.
+- Comparison views for geographic and institutional indicators.
+- A fully static deployment that can run without a backend.
+- Explicit annotations for missing, suspicious, or non-comparable values.
+- Vendored Leaflet assets so the core experience works offline.
+
+## Data integrity by design
+
+The pipeline does not silently discard inconvenient records.
+
+- PDDIKTI's older 34-province classification is reconciled against the current 38-province reference using official regency/city codes.
+- Suspicious tuition values are flagged; impossible values are excluded only from affected statistics.
+- Old and new accreditation schemes are grouped for comparison while original labels remain visible.
+- Geographic boundaries are cross-checked against independent coordinates.
+- Regions with too few observations are not colored for median-based measures.
+
+## Run locally
+
+```bash
+git clone https://github.com/akbaralqahri/PerguruanTinggiIndonesia.git
+cd PerguruanTinggiIndonesia
+npm start
 ```
 
-Situs jalan **offline**. Leaflet di-vendor di `site/vendor/`. Peta dasar
-OpenStreetMap bersifat opsional (mati secara bawaan) dan hanya itu yang butuh
-internet.
+Open `http://localhost:8791`. You can also open `site/index.html` directly because the generated data is loaded as JavaScript variables instead of browser `fetch()` requests.
 
-## Membangun ulang data
+## Rebuild and verify
 
-```
-npm run build    # baca CSV + data wilayah -> site/data/*.js
-npm run verify   # cek hasilnya terhadap CSV mentah
+```bash
+npm run build
+npm run verify
 ```
 
-`build.js` mengunduh `wilayah_level_1_2.sql` (~23 MB) sekali ke `build/.cache/`
-saat pertama dijalankan.
+The first build downloads the official regional SQL reference into `build/.cache/`. The generated site assets are written to `site/data/`.
 
-`verify.js` menghitung ulang semuanya langsung dari CSV **tanpa memakai
-`build/lib`**, sehingga bug di pipeline tidak bisa meloloskan dirinya sendiri.
-Ada 34 pemeriksaan: keutuhan baris, distribusi kategori, integritas join, aturan
-biaya, dan kewajaran spasial.
+## Data sources
 
-## Sumber data
+| Data | Source |
+|---|---|
+| Institutions | PDDIKTI source dataset in `pddikti_pt_gabungan.csv` |
+| Administrative boundaries, population, area | [cahyadsn/wilayah](https://github.com/cahyadsn/wilayah), based on Kepmendagri No. 300.2.2-2138/2025 |
+| Map interface | [Leaflet 1.9.4](https://leafletjs.com/) |
 
-| Data | Sumber | Lisensi |
-|---|---|---|
-| Perguruan tinggi | `pddikti_pt_gabungan.csv` | dataset PDDIKTI |
-| Batas wilayah, penduduk, luas | [cahyadsn/wilayah](https://github.com/cahyadsn/wilayah) — Kepmendagri No 300.2.2-2138 Tahun 2025 | MIT |
-| Peta | [Leaflet](https://leafletjs.com/) 1.9.4 | BSD-2-Clause |
+## Repository map
 
-## Struktur
-
-```
+```text
 build/
-  build.js        pipeline utama
-  verify.js       pemeriksaan independen terhadap CSV mentah
-  lib/
-    csv.js        pembaca CSV (RFC 4180)
-    wilayah.js    parser SQL wilayah + normalisasi bentuk poligon
-    geom.js       Douglas-Peucker + penyaringan pulau mikro
-    clean.js      normalisasi & aturan kualitas data PDDIKTI
-    match.js      penggabungan nama kabupaten -> kode Kepmendagri
-    geofix.js     perbaikan batas wilayah yang cacat
+  build.js          production data pipeline
+  verify.js         independent verification
+  lib/              parsing, cleaning, matching, and geometry modules
 site/
-  index.html
-  assets/         style.css, app.js
-  data/           *.js hasil build (variabel global)
-  vendor/         Leaflet
+  index.html        dashboard entry point
+  tentang-data.html methodology and quality notes
+  assets/           interface code and styles
+  data/             generated static datasets
+  vendor/           vendored Leaflet assets
 ```
 
-## Catatan penting soal data
+## Known limitations
 
-Dataset sumber punya sejumlah cacat. Semuanya **ditandai, bukan dibuang diam-diam**,
-dan tampil di panel "Catatan kualitas data" pada situs.
+- Outcome and tuition fields are missing for a substantial share of source records.
+- Sixty-eight rows have no regency/city value and cannot appear in the local map view.
+- Several source boundaries and coordinates require documented corrections.
+- The dashboard is an analytical interface, not an official PDDIKTI service.
 
-**Perbedaan pembagian provinsi.** Dataset PDDIKTI masih memakai 34 provinsi
-(sebelum pemekaran Papua 2022), sedangkan data wilayah resmi memakai 38. Provinsi
-setiap PT **diturunkan ulang dari kode kabupaten resmi**, sehingga PT di Papua
-tersebar ke provinsi pemekarannya. Angka per provinsi karena itu bisa berbeda dari
-yang tercetak di CSV.
+---
 
-**Biaya.** 15 baris mencantumkan nilai ≥ Rp1 miliar per semester (contoh:
-`Rp5.150.000 - 62.620.000.000.000`) — angkanya tergabung/rusak dan tidak bisa
-dipulihkan, sehingga dikeluarkan dari statistik. 15 baris lain berada di atas
-Rp200 juta per semester (Universitas Tadulako Rp850 juta, Politeknik Negeri Kupang
-Rp500 juta — keduanya PTN dengan UKT sebenarnya puluhan juta); ini kemungkinan
-mencampur uang pangkal, tapi karena tidak terbukti mustahil nilainya **tetap
-ditampilkan dengan tanda ⚠**. 108 baris memakai batas bawah seperti `Rp1` sebagai
-penanda UKT bersubsidi, bukan harga.
-
-**Cakupan.** Kolom Persentase Kelulusan kosong pada 50% baris dan Rentang Biaya
-pada 53%. Median untuk wilayah dengan sedikit data perlu dibaca hati-hati —
-peta menuntut minimal 3 sampel sebelum mewarnai sebuah wilayah untuk ukuran median.
-
-**Akreditasi.** Dataset mencampur skema lama (A/B/C) dan baru (Unggul/Baik
-Sekali/Baik). Keduanya disetarakan per tingkat untuk pewarnaan; label asli tetap
-tampil di tabel.
-
-**Batas wilayah.** Poligon diperiksa silang dengan kolom koordinat yang terpisah.
-Serdang Bedagai, Kepulauan Meranti, dan Pangandaran punya batas yang keliru di
-sumbernya sehingga poligonnya tidak digambar (statistiknya tetap dihitung);
-poligon Sangihe dan Talaud tertukar dan sudah dikembalikan; centroid Wakatobi
-(tertulis `lng 23.539`, di Afrika) diperbaiki. Pemeriksaan ini berjalan setiap
-build, jadi cacat baru akan muncul sebagai peringatan.
-
-68 baris (1,3%) tidak punya isian Kabupaten sehingga tidak muncul di peta
-kabupaten, tapi tetap dihitung dalam total nasional.
+Built by [Muhammad Ali Akbar Al-Qahri](https://github.com/akbaralqahri) as a data-engineering and geospatial decision-support case study.
